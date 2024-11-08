@@ -179,14 +179,20 @@ def main(
         )
     if base_commit is None:
         base_commit = [None] * len(issue_url)
+
+    # need Github token to access issues and comments
     gh_token = os.environ.get("GITHUB_TOKEN", None)
     if gh_token is not None:
         logger.warning(f'Using GitHub token: {"*" * 8}{gh_token[-4:]}')
+    
+    # create a Github API object
     gh = GhApi(token=gh_token)
     tokenizer, tokenizer_func = TOKENIZER_FUNCS["cl100k"]
     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_func]
     python = subprocess.check_output(["which", "python"]).decode("utf-8").strip()
     outputs = list()
+
+    # iterate over issues
     for issue, commit in tqdm(zip(issue_url, base_commit), total=len(issue_url)):
         owner, repo, issue_num = parse_issue_url(issue)
         problem_statement = get_problem_statement(owner, repo, int(issue_num), gh)
@@ -208,6 +214,8 @@ def main(
             max_context_len=max_context_length,
             include_readmes=include_readmes,
         )
+
+        # start inference here
         logger.info(f"Calling model {model_name}")
         start = time.time()
         if model_name.startswith("gpt"):

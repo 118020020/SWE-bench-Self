@@ -1,3 +1,17 @@
+####################
+# Here provide self-added .gitignore
+####################
+
+# ignore data files
+data/
+
+
+
+
+
+####################
+# Below are .gitignore provided by original authors of the project
+####################
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

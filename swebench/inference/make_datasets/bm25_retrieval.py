@@ -469,15 +469,22 @@ def main(
 ):
     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
     token = os.environ.get("GITHUB_TOKEN", "git")
+
+    # load dataset
     if Path(dataset_name_or_path).exists():
         dataset = load_from_disk(dataset_name_or_path)
         dataset_name = os.path.basename(dataset_name_or_path)
     else:
         dataset = load_dataset(dataset_name_or_path)
         dataset_name = dataset_name_or_path.replace("/", "__")
+
+    # if given shard_id, only process the shard_id-th shard
     if shard_id is not None:
         for split in splits:
+            # split the dataset into num_shards, and only keep the shard_id-th shard
             dataset[split] = dataset[split].shard(num_shards, shard_id)
+
+    # get all instances
     instances = list()
     if set(splits) - set(dataset.keys()) != set():
         raise ValueError(f"Unknown splits {set(splits) - set(dataset.keys())}")
@@ -492,6 +499,8 @@ def main(
     root_dir, root_dir_name = get_root_dir(
         dataset_name, output_dir, document_encoding_style
     )
+
+    # get all index paths
     try:
         all_index_paths = get_index_paths(
             remaining_instances,
@@ -510,10 +519,16 @@ def main(
         for dirname in del_dirs:
             shutil.rmtree(dirname, ignore_errors=True)
     logger.info(f"Finished indexing {len(all_index_paths)} instances")
+
+    # search indexes and save results
     search_indexes(remaining_instances, output_file, all_index_paths)
+
+    # after save results, check if there are missing indexes
     missing_ids = get_missing_ids(instances, output_file)
     logger.warning(f"Missing indexes for {len(missing_ids)} instances.")
     logger.info(f"Saved retrieval results to {output_file}")
+
+    # clean up
     del_dirs = list(root_dir.glob("repo__*"))
     logger.info(f"Cleaning up {root_dir}")
     if leave_indexes:
@@ -538,8 +553,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--output_dir", default="./retreival_results")
     parser.add_argument("--splits", nargs="+", default=["train", "test"])
-    parser.add_argument("--shard_id", type=int)
-    parser.add_argument("--num_shards", type=int, default=20)
+    parser.add_argument("--shard_id", type=int, default=None) # add default value with None (because usually I want to process all shards)
+    parser.add_argument("--num_shards", type=int, default=20) # it would be useless if shard_id is None
     parser.add_argument("--leave_indexes", type=string_to_bool, default=True)
     args = parser.parse_args()
     main(**vars(args))

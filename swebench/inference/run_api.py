@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
+# TODO: update models and costs
 MODEL_LIMITS = {
     "claude-instant-1": 100_000,
     "claude-2": 100_000,
@@ -170,7 +171,7 @@ def claude_tokenize(string: str, api) -> int:
     num_tokens = api.count_tokens(string)
     return num_tokens
 
-
+# main function for running inference with openai API
 def openai_inference(
     test_dataset,
     model_name_or_path,
@@ -196,6 +197,8 @@ def openai_inference(
         desc="Filtering",
         load_from_cache_file=False,
     )
+
+    # configure openai
     openai_key = os.environ.get("OPENAI_API_KEY", None)
     if openai_key is None:
         raise ValueError(
@@ -226,7 +229,7 @@ def openai_inference(
             output_dict["text"] = f"{datum['text']}\n\n"
             response, cost = call_chat(
                 output_dict["model_name_or_path"],
-                output_dict["text"],
+                output_dict["text"], # the input text
                 use_azure,
                 temperature,
                 top_p,
@@ -339,6 +342,7 @@ def anthropic_inference(
     existing_ids (set): A set of ids that have already been processed.
     max_cost (float): The maximum cost to spend on inference.
     """
+    # initialize anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY", None)
     if api_key is None:
         raise ValueError(
@@ -346,12 +350,16 @@ def anthropic_inference(
         )
     print(f"Using Anthropic key {'*' * max(0, len(api_key)-5) + api_key[-5:]}")
     anthropic = Anthropic(api_key=api_key)
+
+    # filter the dataset
     test_dataset = test_dataset.filter(
         lambda x: claude_tokenize(x["text"], anthropic)
         <= MODEL_LIMITS[model_name_or_path],
         desc="Filtering",
         load_from_cache_file=False,
     )
+
+    # configure model
     temperature = model_args.pop("temperature", 0.2)
     top_p = model_args.pop("top_p", 0.95 if temperature > 0 else 1)
     print(f"Using temperature={temperature}, top_p={top_p}")
@@ -364,7 +372,10 @@ def anthropic_inference(
         call_api = call_anthropic_v2
     else:
         call_api = call_anthropic
+
+    # run inference
     with open(output_file, "a+") as f:
+        # iterate over the dataset
         for datum in tqdm(test_dataset, desc=f"Inference for {model_name_or_path}"):
             instance_id = datum["instance_id"]
             if instance_id in existing_ids:
@@ -455,17 +466,27 @@ def main(
         )
     if shard_id is not None and num_shards is None:
         logger.warning(f"Received shard_id={shard_id} but num_shards is None, ignoring")
+
+    # parse model args
     model_args = parse_model_args(model_args)
+
+    # get model nickname
     model_nickname = model_name_or_path
     if "checkpoint" in Path(model_name_or_path).name:
         model_nickname = Path(model_name_or_path).parent.name
     else:
         model_nickname = Path(model_name_or_path).name
+
+    # set output file
     output_file = f"{model_nickname}__{dataset_name_or_path.split('/')[-1]}__{split}"
+
+    # write shard info to output file
     if shard_id is not None and num_shards is not None:
         output_file += f"__shard-{shard_id}__num_shards-{num_shards}"
     output_file = Path(output_dir, output_file + ".jsonl")
     logger.info(f"Will write to {output_file}")
+
+    # avoid overwriting existing files
     existing_ids = set()
     if os.path.exists(output_file):
         with open(output_file) as f:
@@ -474,6 +495,8 @@ def main(
                 instance_id = data["instance_id"]
                 existing_ids.add(instance_id)
     logger.info(f"Read {len(existing_ids)} already completed ids from {output_file}")
+
+    # load dataset
     if Path(dataset_name_or_path).exists():
         dataset = load_from_disk(dataset_name_or_path)
     else:
@@ -483,6 +506,8 @@ def main(
     dataset = dataset[split]
     lens = np.array(list(map(len, dataset["text"])))
     dataset = dataset.select(np.argsort(lens))
+
+    # filter out existing ids
     if len(existing_ids) > 0:
         dataset = dataset.filter(
             lambda x: x["instance_id"] not in existing_ids,
@@ -491,6 +516,8 @@ def main(
         )
     if shard_id is not None and num_shards is not None:
         dataset = dataset.shard(num_shards, shard_id, contiguous=True)
+
+    # Now we start the inference
     inference_args = {
         "test_dataset": dataset,
         "model_name_or_path": model_name_or_path,
